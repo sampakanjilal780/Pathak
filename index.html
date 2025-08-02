@@ -5,43 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Newspaper Reader</title>
   <style>
-    body {scrollbars:both; font-family: sans-serif; margin: 1em; }
+    body { font-family: sans-serif; margin: 1em; overflow: hidden; }
     #video, #canvas {
       border: 2px solid #333;
-      width: 98%;
-      max-width: 100%;
-      height: 98%;
+      width: 100%;
+      height: auto;
     }
     canvas {
       position: absolute;
       top: 0; left: 0;
     }
-    #container {
-      position: relative;
-      display: inline-block;
-    }
-    #output {
-      display: none;
-      position: fixed;
-      top: 20%;
-      left: 5%;
-      right: 15%;
-      white-space: pre-wrap;
-      background: #f4f4f4;
-      padding: 10px;
-      margin-top: 10px;
-    }
     #camera-container {
-      position: absolute;
+      position: relative;
       width: 100vw;
       height: 100vh;
-      left: 0;
-      top: 0;
-    }
-    video {
-      width: 98%;
-      height: 98%;
-      object-fit: cover;
+      overflow: hidden;
     }
     .top-buttons {
       position: absolute;
@@ -50,7 +28,7 @@
       z-index: 10;
       display: flex;
       gap: 30px;
-      width: 99%;
+      width: 100%;
     }
     .top-buttons button {
       background: transparent;
@@ -62,30 +40,42 @@
     #smallText {
       font-size: 8pt;
     }
+    #output {
+      display: none;
+      position: fixed;
+      top: 20%;
+      left: 5%;
+      right: 15%;
+      white-space: pre-wrap;
+      background: #f4f4f4;
+      padding: 10px;
+      font-size: 16px;
+      z-index: 100;
+    }
   </style>
 </head>
 <body>
 <div id="camera-container">
   <video id="video" autoplay playsinline></video>
-  <div class="top-buttons">
-    <button id="undo-btn" title="Undo" onclick="undoBox()">↩️<br><div id="smallText">Undo</div></button>
-    <button id="capture-btn" title="Capture and Read aloud" onclick="captureAndProcess()">🔴<br><div id="smallText">Read</div></button>
-    <button id="home-btn" title="Home" onclick="location.href='index.html'">🏠<br><div id="smallText">Home</div></button>
-    <button id="showhide-btn" title="Show/Hide text" onclick="displayText()">📖<br><div id="smallText">View<br>Text</div></button>
-  </div>
   <canvas id="canvas"></canvas>
+  <div class="top-buttons">
+    <button onclick="undoBox()">↩️<br><div id='smallText'>Undo</div></button>
+    <button onclick="captureAndProcess()">🔴<br><div id='smallText'>Read</div></button>
+    <button onclick="location.href='index.html'">🏠<br><div id='smallText'>Home</div></button>
+    <button onclick="displayText()">📖<br><div id='smallText'>View<br>Text</div></button>
+  </div>
 </div>
 <div id="output"></div>
+
 <script>
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 const resultBox = document.getElementById('output');
-
 let boxes = [];
 let drawing = false, startX = 0, startY = 0;
+const apiKey = "YOUR_GROQ_API_KEY_HERE";  // <-- Insert your key here
 
-// Start camera
 navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
   .then(stream => {
     video.srcObject = stream;
@@ -96,5 +86,141 @@ navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
   })
   .catch(err => alert('Camera not available: ' + err));
 
-// Coordinate mapping
-function getCanvasCoordinates(clientX,
+canvas.addEventListener('mousedown', e => {
+  const pos = getCanvasCoordinates(e.clientX, e.clientY);
+  drawing = true;
+  startX = pos.x;
+  startY = pos.y;
+});
+canvas.addEventListener('mouseup', e => {
+  if (!drawing) return;
+  const pos = getCanvasCoordinates(e.clientX, e.clientY);
+  drawing = false;
+  finishBox(startX, startY, pos.x, pos.y);
+});
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const touch = e.touches[0];
+  const pos = getCanvasCoordinates(touch.clientX, touch.clientY);
+  drawing = true;
+  startX = pos.x;
+  startY = pos.y;
+});
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  const touch = e.changedTouches[0];
+  const pos = getCanvasCoordinates(touch.clientX, touch.clientY);
+  drawing = false;
+  finishBox(startX, startY, pos.x, pos.y);
+});
+
+function getCanvasCoordinates(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  return {
+    x: (clientX - rect.left) * scaleX,
+    y: (clientY - rect.top) * scaleY
+  };
+}
+
+function finishBox(x1, y1, x2, y2) {
+  const x = Math.min(x1, x2);
+  const y = Math.min(y1, y2);
+  const width = Math.abs(x2 - x1);
+  const height = Math.abs(y2 - y1);
+  if (width > 5 && height > 5) {
+    boxes.push({ x, y, width, height });
+  }
+  drawBoxes();
+}
+function drawBoxes() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = 'red';
+  ctx.lineWidth = 2;
+  for (const box of boxes) {
+    ctx.strokeRect(box.x, box.y, box.width, box.height);
+  }
+}
+function undoBox() {
+  boxes.pop();
+  drawBoxes();
+}
+
+function displayText() {
+  const currentDisplay = resultBox.style.display;
+  const btn = document.getElementById("showhide-btn");
+  resultBox.style.display = currentDisplay === 'none' ? 'block' : 'none';
+}
+
+async function captureAndProcess() {
+  resultBox.textContent = "Capturing and processing...";
+  let cropBox = boxes.length > 0 ? boxes[boxes.length - 1] : null;
+
+  const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = canvas.width;
+  tempCanvas.height = canvas.height;
+  const tempCtx = tempCanvas.getContext('2d');
+  tempCtx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
+
+  let imageData;
+  if (cropBox) {
+    const cropped = document.createElement('canvas');
+    cropped.width = cropBox.width;
+    cropped.height = cropBox.height;
+    const croppedCtx = cropped.getContext('2d');
+    croppedCtx.drawImage(tempCanvas,
+      cropBox.x, cropBox.y, cropBox.width, cropBox.height,
+      0, 0, cropBox.width, cropBox.height
+    );
+    imageData = cropped.toDataURL('image/jpeg').split(',')[1];
+  } else {
+    imageData = tempCanvas.toDataURL('image/jpeg').split(',')[1];
+  }
+
+  try {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "meta-llama/llama-4-scout-17b-16e-instruct",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "What text do you see in this image?" },
+              {
+                type: "image_url",
+                image_url: {
+                  url: `data:image/jpeg;base64,${imageData}`
+                }
+              }
+            ]
+          }
+        ]
+      })
+    });
+
+    const result = await response.json();
+    const message = result.choices?.[0]?.message?.content || "No response received.";
+    resultBox.textContent = message;
+    resultBox.style.display = "block";
+    speakText(message);
+  } catch (error) {
+    resultBox.textContent = "Error: " + error.message;
+    console.error(error);
+  }
+}
+
+function speakText(text) {
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'en-US';
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(utterance);
+}
+</script>
+</body>
+</html>
